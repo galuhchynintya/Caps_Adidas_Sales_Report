@@ -1,0 +1,627 @@
+---
+title: "Caps_DV_adidas"
+author: "Galuh Chynintya"
+date: "2024-06-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+# clear-up the environment
+rm(list = ls())
+
+# scientific notation
+options(scipen = 999)
+
+# chunk options
+knitr::opts_chunk$set(
+  fig.align = "center",
+  message = FALSE,
+  warning = FALSE,
+  comment = "#>"
+)
+```
+
+```{r}
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(plotly)
+library(scales)
+library(glue)
+library(shiny)
+library(shinydashboard)
+```
+
+```{r}
+#membaca data
+sales <- read.csv("Adidas US Sales Datasets.csv")
+head(sales)
+```
+```{r}
+#mengecek struktur data
+sales %>% 
+  glimpse()
+```
+data yang perlu diubah strukturnya:
+as.factor: Retailer, Retailer.ID, Region, State, City, Product, Sales.Method
+as.datetime: Invoice.Date
+
+```{r}
+#merubah struktur data
+sales <- 
+sales %>% 
+  # fungsi untuk mengubah beberapa kolom secara bersamaan ke tipe data yang sama
+  mutate_at(.vars = c("Retailer", "Retailer.ID", "Region", "State", "City", "Product", "Sales.Method"), # parameter untuk memilih kolom yang akan diubah tipe datanya
+            .funs = as.factor) %>% # parameter untuk fungsi tipe data yang dituju
+  mutate(Invoice.Date = dmy(Invoice.Date))
+```
+```{r}
+glimpse(sales)
+```
+
+
+#Check missing value
+```{r}
+anyNA(sales)
+```
+```{r}
+colSums(is.na(sales))
+```
+
+#Membuat kolom season
+tahapan: 
+1. ekstrak day,month, year
+2. buat kolom season dengan fungsi if -> winter (12,1,2), spring (3,4,5), summer(6,7,8), autumn (9,10,11)
+
+```{r}
+#ekstrak day,month, year
+sales$day <-  day(sales$Invoice.Date)
+sales$month <- month(sales$Invoice.Date)
+sales$year <- year(sales$Invoice.Date)
+head(sales)
+```
+
+```{r}
+convert_season <- function(x) {
+  if (x == 1 | x == 2 | x == 12) 
+    {x <- "Winter"}
+  else if (x == 3 | x == 4 | x == 5 )
+    {x <- "Spring"}
+  else if (x == 6 | x == 7 | x == 8 )
+    {x <- "Summer"}
+  else 
+    {x <- "Autumn"}
+}
+```
+
+Untuk mengimplementasikan fungsi `convert_season` kita bisa menggunakan `sapply()`.
+
+-   `X` = kolom apa yang ingin kita transformasi
+-   `FUN` = nama fungsi yang ingin diterapkan
+
+```{r}
+# Please run the code down below
+sales$season <- sapply(X = sales$month, # kolom angka yang mau diubah
+                            FUN = convert_season) 
+
+# ubah ke factor
+sales$season <- as.factor(sales$season)
+sales$day <- wday(sales$Invoice.Date)
+sales$day <- as.factor(sales$day)
+sales$month <- month(sales$Invoice.Date, label = T, abbr = F)
+sales$month <- as.factor(sales$month)
+sales$year <- as.factor(sales$year)
+head(sales)
+```
+
+```{r}
+str(sales)
+```
+
+#Total Retailer
+```{r}
+length(unique(sales$Retailer))
+```
+#Total City
+```{r}
+length(unique(sales$City))
+```
+#Best Seller Product
+```{r}
+best_product <- 
+  sales %>%  
+  group_by(Product) %>% 
+  summarise(Units.Sold = sum(Units.Sold)) %>% 
+  arrange(-Units.Sold) %>% 
+  head(1) 
+best_product[1,1]
+```
+#Average products sold per season
+
+```{r}
+aggregate(Units.Sold ~ season, data = sales, FUN = sum)
+```
+
+
+```{r}
+ave_product <- 
+  sales %>%  
+  group_by(season) %>% 
+  summarise(Units.Sold = sum(Units.Sold)) %>% 
+  arrange(-Units.Sold) 
+ave_product
+```
+
+```{r}
+mean(ave_product$Units.Sold)
+```
+
+#Average amount sales per season
+```{r}
+ave_sales <- 
+  sales %>%  
+  group_by(season) %>% 
+  summarise(Total.Sales = sum(Total.Sales)) %>% 
+  arrange(-Total.Sales) 
+ave_sales
+```
+
+```{r}
+mean(ave_sales$Total.Sales)
+```
+
+#Average operating profit per season
+```{r}
+ave_op <- 
+  sales %>%  
+  group_by(season) %>% 
+  summarise(Operating.Margin = mean(Operating.Margin)) %>% 
+  arrange(-Operating.Margin) 
+ave_op
+```
+
+```{r}
+mean(ave_op$Operating.Margin)
+```
+
+
+#Plot1 
+plot title: Total item sold based on date in any region
+plot type: line plot
+
+```{r}
+#jumlah sales pada setiap retailer di masing2 region dengan cara base
+sales_regbase <- aggregate(Total.Sales ~ Retailer + Region, 
+                      data = sales, 
+                      FUN = sum)
+sales_regbase[order(sales_regbase$Total.Sales, decreasing = T),]
+```
+
+```{r}
+#data untuk plot1
+sales_region <- 
+sales_clean %>% 
+  filter(Product %in% "Men's Street Footwear") %>% 
+  group_by(Retailer, Region) %>% 
+  summarise(Total.Sales = sum(Total.Sales)) %>% 
+  arrange(-Total.Sales) %>% 
+  mutate(label = glue("Retailer: {Retailer}
+                      {Region} Sales: {comma(Total.Sales)}"))
+sales_region
+```
+
+
+```{r}
+#jumlah transaksi pada setiap retailer di masing2 region
+trans_region <- aggregate(Total.Sales ~ Retailer + Region, 
+                      data = sales_clean, 
+                      FUN = length)
+trans_region[order(trans_region$Total.Sales, decreasing = T),]
+```
+
+```{r}
+#best seller product
+best_product <- 
+  sales_clean %>%  
+  group_by(Product) %>% 
+  summarise(Units.Sold = sum(Units.Sold)) %>% 
+  arrange(-Units.Sold) %>% 
+  head(1)
+best_product
+```
+
+
+```{r}
+# Pembuatan Visual Statis
+plot1 <- 
+ggplot(data = sales_region, 
+       mapping = aes(x=Total.Sales, y=reorder(Retailer, Total.Sales), text=label)) +
+  geom_col(mapping = aes(fill=Region), position = "stack") +
+  scale_fill_brewer(palette = "Set2")+
+  labs(title = "Total Sales Based on Region",
+       x = "Total Sales",
+       y = "Retailer",
+       fill="Region") +
+  theme_classic()
+# Mengubah Visual Statis menjadi Interaktif
+ggplotly(plot1, tooltip = 'text')
+```
+
+
+```{r}
+#data untuk plot2
+sales_unitsold <- 
+sales_clean %>% 
+  filter(Product %in% "Men's Street Footwear") %>% 
+  group_by(Retailer, Region) %>% 
+  summarise(Units.Sold = sum(Units.Sold)) %>% 
+  arrange(-Units.Sold) %>% 
+  mutate(label = glue("Retailer: {Retailer}
+                      {Region} Units Sold: {comma(Units.Sold)}"))
+sales_unitsold
+```
+
+```{r}
+# Pembuatan Visual Statis
+plot2 <- 
+ggplot(data = sales_unitsold, 
+       mapping = aes(x=Units.Sold, y=reorder(Retailer, Units.Sold), text=label)) +
+  geom_col(mapping = aes(fill=Region), position = "stack") +
+  scale_fill_brewer(palette = "Set2")+
+  labs(title = "Total Unit Sold Based on Region",
+       x = "Total Unit Sold",
+       y = "Retailer",
+       fill="Region") +
+  theme_classic()
+# Mengubah Visual Statis menjadi Interaktif
+ggplotly(plot2, tooltip = 'text')
+```
+
+
+```{r}
+#data untuk plot3
+sales_opmargin <- 
+sales_clean %>% 
+  filter(Product %in% "Men's Street Footwear") %>% 
+  group_by(Retailer, Region) %>% 
+  summarise(Operating.Margin = mean(Operating.Margin)) %>% 
+  arrange(-Operating.Margin) %>% 
+  mutate(label = glue("Retailer: {Retailer}
+                      {Region} Op Margin: {comma(Operating.Margin)}%"))
+sales_opmargin
+```
+
+```{r}
+# Pembuatan Visual Statis
+plot3 <- 
+ggplot(data = sales_opmargin, 
+       mapping = aes(x=Operating.Margin, y=reorder(Retailer, Operating.Margin), text=label)) +
+  geom_col(mapping = aes(fill=Region), position = "stack") +
+  scale_fill_brewer(palette = "Set2")+
+  labs(title = "Operating Margin Based on Region",
+       x = "Average Operating Margin",
+       y = "Retailer",
+       fill="Region") +
+  theme_classic()
+# Mengubah Visual Statis menjadi Interaktif
+ggplotly(plot3, tooltip = 'text')
+```
+
+```{r}
+sales_clean$InvoiceQ <-  quarter(sales_clean$Invoice.Date, with_year = TRUE)
+sales_clean
+```
+
+
+```{r}
+#data untuk plot4
+sales_trend <- 
+sales %>% 
+  filter(Retailer %in% "Foot Locker") %>% 
+  group_by(Region, InvoiceQ) %>% 
+  summarise(Total.Sales = sum(Total.Sales)) %>% 
+  arrange(-Total.Sales) %>% 
+  mutate(label = glue("Region: {Region}
+                      Sales: {comma(Total.Sales)}"))
+sales_trend
+```
+
+```{r}
+# visualisasi geom_line dengan color
+# kanvas
+ggplot(data = sales_trend, 
+       mapping = aes(x = InvoiceQ,
+                     y = Total.Sales,
+                     
+                     # mewarnai line
+                     color = Region))+
+  
+  # layer 1: line plot 
+  geom_line(mapping = aes(group = Region),
+            
+            #menebalkan garis line
+            size = 0.75 )
+```
+
+```{r}
+#plot 4
+sales_method <- 
+sales %>% 
+  filter(Region %in% "Northeast") %>% 
+  group_by(Retailer, Sales.Method) %>% 
+  summarise(Total.Sales = sum(Total.Sales)) %>% 
+  arrange(-Total.Sales) %>% 
+  mutate(label = glue("Retailer: {Retailer}
+                      Sales: {comma(Total.Sales)}"))
+sales_method
+```
+
+```{r}
+# kanvas
+plot4 <- 
+ggplot(data = sales_method, 
+       mapping = aes(x = Retailer,
+                     y = Total.Sales,
+                     text=label,
+                     
+                     # mewarnai line
+                     color = Sales.Method), palette = "Set2")+
+  
+  # layer 1: line plot 
+  geom_line(mapping = aes(group = Sales.Method),
+            
+            #menebalkan garis line
+            size = 1 )+
+  
+  # layer 2: menambahkan titik
+  geom_point(size = 2)+
+  
+  # menambahkan separator bilangan
+  scale_y_continuous(labels = unit_format(scale = 1e-6, suffix = " Juta"),
+                     breaks = seq(from = 0,
+                                  to = 50e6,
+                                  by = 10e6))+
+  theme_minimal()
+# Mengubah Visual Statis menjadi Interaktif
+ggplotly(plot4, tooltip = 'text')
+  # mengatur detail sumbu x
+  #scale_x_continuous(breaks = seq(0,23,1))
+```
+
+```{r}
+#plot 5
+sales_method1 <- 
+sales_clean %>% 
+  filter(Product %in% "Men's Apparel") %>% 
+  group_by(Retailer, Sales.Method) %>% 
+  summarise(Total.Sales = sum(Total.Sales)) %>% 
+  arrange(-Total.Sales) %>% 
+  mutate(label = glue("Retailer: {Retailer}
+                      Sales: {comma(Total.Sales)}"))
+sales_method1
+```
+
+```{r}
+# kanvas
+plot5 <- 
+ggplot(data = sales_method1, 
+       mapping = aes(x = Retailer,
+                     y = Total.Sales,
+                     text=label,
+                     
+                     # mewarnai line
+                     color = Sales.Method), palette = "Set2")+
+  
+  # layer 1: line plot 
+  geom_line(mapping = aes(group = Sales.Method),
+            
+            #menebalkan garis line
+            size = 1 )+
+  
+  # layer 2: menambahkan titik
+  geom_point(size = 2)+
+  
+  # menambahkan separator bilangan
+  scale_y_continuous(labels = unit_format(scale = 1e-6, suffix = " Juta"),
+                     breaks = seq(from = 0,
+                                  to = 40e6,
+                                  by = 5e6))+
+  theme_minimal()
+# Mengubah Visual Statis menjadi Interaktif
+ggplotly(plot5, tooltip = 'text')
+```
+
+
+```{r}
+#plot 6
+sales_method2 <- 
+sales_clean %>% 
+  filter(Region %in% "Northeast") %>% 
+  group_by(Retailer, Sales.Method) %>% 
+  summarise(Units.Sold = sum(Units.Sold)) %>% 
+  arrange(-Units.Sold) %>% 
+  mutate(label = glue("Retailer: {Retailer}
+                      Units Sold: {comma(Units.Sold)}"))
+sales_method2
+```
+
+```{r}
+# kanvas
+plot6 <- 
+ggplot(data = sales_method2, 
+       mapping = aes(x = Retailer,
+                     y = Units.Sold,
+                     text=label,
+                     
+                     # mewarnai line
+                     color = Sales.Method), palette = "Set2")+
+  
+  # layer 1: line plot 
+  geom_line(mapping = aes(group = Sales.Method),
+            
+            #menebalkan garis line
+            size = 1 )+
+  
+  # layer 2: menambahkan titik
+  geom_point(size = 2)+
+  
+  # menambahkan separator bilangan
+  scale_y_continuous(breaks = seq(from = 0,
+                                  to = 100000,
+                                  by = 10000))+
+  theme_minimal()
+# Mengubah Visual Statis menjadi Interaktif
+ggplotly(plot6, tooltip = 'text')
+```
+
+```{r}
+#plot 7
+sales_method3 <- 
+sales_clean %>% 
+  filter(Product %in% "Men's Apparel") %>% 
+  group_by(Retailer, Sales.Method) %>% 
+  summarise(Units.Sold = sum(Units.Sold)) %>% 
+  arrange(-Units.Sold) %>% 
+  mutate(label = glue("Retailer: {Retailer}
+                      Units Sold: {comma(Units.Sold)}"))
+sales_method3
+```
+
+```{r}
+# kanvas
+plot7 <- 
+ggplot(data = sales_method3, 
+       mapping = aes(x = Retailer,
+                     y = Units.Sold,
+                     text=label,
+                     
+                     # mewarnai line
+                     color = Sales.Method), palette = "Set2")+
+  
+  # layer 1: line plot 
+  geom_line(mapping = aes(group = Sales.Method),
+            
+            #menebalkan garis line
+            size = 1 )+
+  
+  # layer 2: menambahkan titik
+  geom_point(size = 2)+
+  
+  # menambahkan separator bilangan
+  scale_y_continuous(breaks = seq(from = 0,
+                                  to = 100000,
+                                  by = 10000))+
+  theme_minimal()
+# Mengubah Visual Statis menjadi Interaktif
+ggplotly(plot7, tooltip = 'text')
+```
+
+```{r}
+#plot 8
+sales_product1 <- 
+sales_clean %>% 
+  filter(Region %in% "Midwest",
+         Retailer %in% "Foot Locker") %>% 
+  group_by(Product, Sales.Method) %>% 
+  summarise(Total.Sales = sum(Total.Sales)) %>% 
+  arrange(-Total.Sales) %>% 
+  mutate(label = glue("Product: {Product}
+                      Sales: {comma(Total.Sales)}"))
+sales_product1
+```
+
+```{r}
+# Pembuatan Visual Statis
+plot8 <- 
+ggplot(data = sales_product1, 
+       mapping = aes(x=Total.Sales, y=reorder(Product, Total.Sales), text=label)) +
+  geom_col(mapping = aes(fill=Sales.Method), position = "stack") +
+  scale_fill_brewer(palette = "Set2")+
+  labs(title = "Total Sales by Product Based on Sales Method",
+       x = "Total Sales",
+       y = "Product",
+       fill="Sales Method") +
+  theme_classic()
+# Mengubah Visual Statis menjadi Interaktif
+ggplotly(plot8, tooltip = 'text')
+```
+
+```{r}
+#plot 9
+sales_product2 <- 
+sales_clean %>% 
+  filter(Region %in% "Midwest",
+         Retailer %in% "Foot Locker") %>% 
+  group_by(Product, Sales.Method) %>% 
+  summarise(Units.Sold = sum(Units.Sold)) %>% 
+  arrange(-Units.Sold) %>% 
+  mutate(label = glue("Product: {Product}
+                      Units Sold: {comma(Units.Sold)}"))
+sales_product2
+```
+
+```{r}
+# Pembuatan Visual Statis
+plot9 <- 
+ggplot(data = sales_product2, 
+       mapping = aes(x=Units.Sold, y=reorder(Product, Units.Sold), text=label)) +
+  geom_col(mapping = aes(fill=Sales.Method), position = "stack") +
+  scale_fill_brewer(palette = "Set2")+
+  labs(title = "Units Sold by Product Based on Sales Method",
+       x = "Units Sold",
+       y = "Product",
+       fill="Sales Method") +
+  theme_classic()
+# Mengubah Visual Statis menjadi Interaktif
+ggplotly(plot9, tooltip = 'text')
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

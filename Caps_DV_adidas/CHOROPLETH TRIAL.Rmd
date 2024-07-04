@@ -1,0 +1,328 @@
+---
+title: "MAPS TRIAL"
+author: "Galuh Chynintya"
+date: "2024-07-02"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##LIBRARY
+```{r}
+library(sf)
+library(leaflet)
+library(ggplot2)
+library(glue)
+library(RColorBrewer)
+library(dplyr)
+library(viridis)
+```
+
+
+
+##CHOROPLETH STATIC
+source:https://r-graph-gallery.com/327-chloropleth-map-from-geojson-with-ggplot2.html
+
+```{r}
+# Geospatial data available at the geojson format
+tmp_geojson <- tempfile(fileext = ".geojson")
+
+download.file(
+  "https://raw.githubusercontent.com/gregoiredavid/france-geojson/master/communes.geojson",
+  tmp_geojson
+)
+my_sf <- read_sf(tmp_geojson)
+
+# Since it is a bit too much data, I select only a subset of it:
+my_sf <- my_sf[substr(my_sf$code, 1, 2) %in% c(
+  "06", "83",
+  "13", "30", "34", "11", "66"
+), ]
+```
+
+```{r}
+my_sf
+```
+
+
+```{r}
+ggplot(my_sf) +
+  geom_sf(fill = "white", color = "black", linewidth = 0.3) +
+  theme_void()
+```
+
+```{r}
+# read data
+data <- read.table(
+  "https://raw.githubusercontent.com/holtzy/R-graph-gallery/master/DATA/data_on_french_states.csv",
+  header = T, sep = ";"
+)
+
+head(data)
+```
+
+```{r}
+# Distribution of the number of restaurant?
+
+data %>%
+  ggplot(aes(x = nb_equip)) +
+  geom_histogram(bins = 10, fill = "skyblue", color = "black") +
+  scale_x_log10()
+```
+
+Merge geospatial and numeric data
+```{r}
+# Make the merge
+my_sf_merged <- my_sf %>%
+  left_join(data, by = c("code" = "depcom")) %>%
+  # Note that if the number of restaurant is NA, it is in fact 0
+  mutate(nb_equip = ifelse(is.na(nb_equip), 0.01, nb_equip))
+```
+
+```{r}
+ggplot(my_sf_merged) +
+  geom_sf(aes(fill = nb_equip)) +
+  theme_void()
+```
+Customized choropleth map with R and ggplot2
+We need to change the color palette, improve the legend, use a log scale transformation for the colorscale, change background and add titles and explanation.
+```{r}
+p <- ggplot(my_sf_merged) +
+  geom_sf(aes(fill = nb_equip), linewidth = 0, alpha = 0.9) +
+  theme_void() +
+  scale_fill_viridis_c(
+    trans = "log", breaks = c(1, 5, 10, 20, 50, 100),
+    name = "Number of restaurant",
+    guide = guide_legend(
+      keyheight = unit(3, units = "mm"),
+      keywidth = unit(12, units = "mm"),
+      label.position = "bottom",
+      title.position = "top",
+      nrow = 1
+    )
+  ) +
+  labs(
+    title = "South of France Restaurant concentration",
+    subtitle = "Number of restaurant per city district",
+    caption = "Data: INSEE | Creation: Yan Holtz | r-graph-gallery.com"
+  ) +
+  theme(
+    text = element_text(color = "#22211d"),
+    plot.background = element_rect(fill = "#f5f5f2", color = NA),
+    panel.background = element_rect(fill = "#f5f5f2", color = NA),
+    legend.background = element_rect(fill = "#f5f5f2", color = NA),
+    plot.title = element_text(
+      size = 20, hjust = 0.01, color = "#4e4d47",
+      margin = margin(
+        b = -0.1, t = 0.4, l = 2,
+        unit = "cm"
+      )
+    ),
+    plot.subtitle = element_text(
+      size = 15, hjust = 0.01,
+      color = "#4e4d47",
+      margin = margin(
+        b = -0.1, t = 0.43, l = 2,
+        unit = "cm"
+      )
+    ),
+    plot.caption = element_text(
+      size = 10,
+      color = "#4e4d47",
+      margin = margin(
+        b = 0.3, r = -99, t = 0.3,
+        unit = "cm"
+      )
+    ),
+    legend.position = c(0.7, 0.09)
+  )
+p
+```
+
+##CHOROPLETH INTERACTIVE
+source:https://r-graph-gallery.com/183-choropleth-map-with-leaflet.html
+
+```{r}
+# Download the shapefile (note that I put it in a folder called DATA)
+download.file(
+  "https://raw.githubusercontent.com/holtzy/R-graph-gallery/master/DATA/world_shape_file.zip",
+  destfile = "DATA/world_shape_file.zip"
+)
+# You now have it in your current working directory, have a look!
+
+# Unzip this file. You can do it with R (as below), or clicking on the object you downloaded.
+system("unzip DATA/world_shape_file.zip")
+#  -- > You now have 4 files. One of these files is a .shp file! (world_shape_file.shp)
+```
+And load it in R
+```{r}
+# Read this shape file with the sf library.
+
+world_sf <- read_sf("DATA/TM_WORLD_BORDERS_SIMPL-0.3.shp")
+world_sf
+```
+
+```{r}
+# Clean the data object
+library(dplyr)
+world_sf <- world_sf %>%
+  mutate(POP2005 = ifelse(POP2005 == 0, NA, round(POP2005 / 1000000, 2)))
+
+# -- > Now you have a sf object (simple feature data frame). You can start doing maps!
+```
+
+```{r}
+world_sf
+```
+
+```{r}
+# Library
+library(leaflet)
+
+# Create a color palette for the map:
+mypalette <- colorNumeric(
+  palette = "viridis", domain = world_sf$POP2005,
+  na.color = "transparent"
+)
+mypalette(c(45, 43))
+
+# Basic choropleth with leaflet?
+m <- leaflet(world_sf) %>%
+  addTiles() %>%
+  setView(lat = 10, lng = 0, zoom = 2) %>%
+  addPolygons(fillColor = ~ mypalette(POP2005), stroke = FALSE)
+
+m
+# save the widget in a html file if needed.
+# library(htmlwidgets)
+# saveWidget(m, file=paste0( getwd(), "/HtmlWidget/choroplethLeaflet1.html"))
+```
+
+Visualize the numeric variable
+```{r}
+# load ggplot2
+library(ggplot2)
+
+# Distribution of the population per country?
+ggplot(world_sf, aes(x = POP2005)) +
+  geom_histogram(bins = 20, fill = "#69b3a2", color = "white") +
+  xlab("Population (M)") +
+  theme_bw()
+```
+
+```{r}
+# Color by quantile
+m <- leaflet(world_sf) %>%
+  addTiles() %>%
+  setView(lat = 10, lng = 0, zoom = 2) %>%
+  addPolygons(
+    stroke = FALSE, fillOpacity = 0.5,
+    smoothFactor = 0.5, color = ~ colorQuantile("YlOrRd", POP2005)(POP2005)
+  )
+m
+
+# # save the widget in a html file if needed.
+# htmlwidgets::saveWidget(m, file=paste0( getwd(), "/HtmlWidget/choroplethLeaflet2.html"))
+```
+
+```{r}
+# Numeric palette
+m <- leaflet(world_sf) %>%
+  addTiles() %>%
+  setView(lat = 10, lng = 0, zoom = 2) %>%
+  addPolygons(
+    stroke = FALSE, fillOpacity = 0.5, smoothFactor = 0.5,
+    color = ~ colorNumeric("YlOrRd", POP2005)(POP2005)
+  )
+m
+
+
+# htmlwidgets::saveWidget(m, file=paste0( getwd(), "/HtmlWidget/choroplethLeaflet3.html"))
+```
+
+```{r}
+# Bin
+m <- leaflet(world_sf) %>%
+  addTiles() %>%
+  setView(lat = 10, lng = 0, zoom = 2) %>%
+  addPolygons(
+    stroke = FALSE, fillOpacity = 0.5, smoothFactor = 0.5,
+    color = ~ colorBin("YlOrRd", POP2005)(POP2005)
+  )
+m
+
+# htmlwidgets::saveWidget(m, file=paste0( getwd(), "/HtmlWidget/choroplethLeaflet4.html"))
+```
+
+Customizied leaflet choropleth map
+In order to get a quality choropleth map, there are several improvements we need to apply:
+
+Add a legend with addLegend()
+Change the color scale: binning is a good option here since it avoids to put too much weight on China and India
+Add a tooltip with labelOptions. When you hover a specific region, a box appears with custom text. This is very handy to add additional information to your map.
+
+```{r}
+# Create a color palette with handmade bins.
+library(RColorBrewer)
+mybins <- c(0, 10, 20, 50, 100, 500, Inf)
+mypalette <- colorBin(
+  palette = "YlOrBr", domain = world_sf$POP2005,
+  na.color = "transparent", bins = mybins
+)
+# Prepare the text for tooltips:
+mytext <- paste(
+  "Country: ", world_sf$NAME, "<br/>",
+  "Area: ", world_sf$AREA, "<br/>",
+  "Population: ", round(world_sf$POP2005, 2),
+  sep = ""
+) %>%
+  lapply(htmltools::HTML)
+
+# Final Map
+m <- leaflet(world_sf) %>%
+  addTiles() %>%
+  setView(lat = 10, lng = 0, zoom = 2) %>%
+  addPolygons(
+    fillColor = ~ mypalette(POP2005),
+    stroke = TRUE,
+    fillOpacity = 0.9,
+    color = "white",
+    weight = 0.3,
+    label = mytext,
+    labelOptions = labelOptions(
+      style = list("font-weight" = "normal", padding = "3px 8px"),
+      textsize = "13px",
+      direction = "auto"
+    )
+  ) %>%
+  addLegend(
+    pal = mypalette, values = ~POP2005, opacity = 0.9,
+    title = "Population (M)", position = "bottomleft"
+  )
+
+m
+
+# save the widget in a html file if needed.
+# htmlwidgets::saveWidget(m, file=paste0( getwd(), "/HtmlWidget/choroplethLeaflet5.html"))
+```
+
+
+#TRIAL 1
+```{r}
+# Geospatial data available at the json format
+#dari web https://github.com/PublicaMundi/MappingAPI/blob/master/data/geojson/us-states.json klik raw untuk mendapatkan link raw data
+US_json <- tempfile(fileext = ".json")
+
+download.file(
+  "https://storage.googleapis.com/kagglesdsdata/datasets/831691/1428241/us-states.json?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=gcp-kaggle-com%40kaggle-161607.iam.gserviceaccount.com%2F20240703%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20240703T122646Z&X-Goog-Expires=259200&X-Goog-SignedHeaders=host&X-Goog-Signature=6895e9ead75a20973bde81bfcb45d62b212bbb25ebd80f0af00438752bbe1f55149b1f1d6562bd0b6ffeca29f47270b0e3ee49c9b111cf014756782d32eee08ea51ffd97c920628209f64bbcd0febbd34c4bfc9498175db574c65c16ec2d26fec719c827ee48f3fb612897fcdf1947616d1d7bf0044f079bdb1a70be53aa6f809880daee95fe03377f5058213d6399ffc62d09abbd229e92921ff236152450ab96bfd91f23ae4ff4a771d913c5b34837a81789232abd082d1f7a0462de7a14a18ded79e1d267bebc933fd4ad0838f2e569706a1aeb086e9f978faefdaba86b9046fdc039b9aa9c1073bb5d76ae268f90f877e86b5be575c0e22c4169e76aef27",
+  US_json
+)
+trial1_sf <- read_sf(US_json)
+trial1_sf
+```
+
+
+
+

@@ -1,0 +1,944 @@
+---
+title: "Caps_DV_adidas"
+author: "Galuh Chynintya"
+date: "2024-06-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+# clear-up the environment
+rm(list = ls())
+
+# scientific notation
+options(scipen = 999)
+
+# chunk options
+knitr::opts_chunk$set(
+  fig.align = "center",
+  message = FALSE,
+  warning = FALSE,
+  comment = "#>"
+)
+```
+
+#Library
+```{r}
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(plotly)
+library(scales)
+library(glue)
+library(shiny)
+library(shinydashboard)
+library(shinythemes)
+library(shinyWidgets)
+library(forcats)
+library(readxl)
+library(RColorBrewer)
+library(leaflet)
+```
+
+```{r}
+#membaca data
+sales <- read.csv("Adidas US Sales Datasets.csv")
+sales
+```
+
+```{r}
+sales[ sales$State.Id == 01, ]
+```
+
+
+```{r}
+#mengecek struktur data
+sales %>% 
+  glimpse()
+```
+data yang perlu diubah strukturnya:
+as.factor: Retailer, Retailer.ID, Region, State, City, Product, Sales.Method
+as.datetime: Invoice.Date
+
+```{r}
+#merubah struktur data
+sales <- 
+sales %>% 
+  # fungsi untuk mengubah beberapa kolom secara bersamaan ke tipe data yang sama
+  mutate_at(.vars = c("Retailer", "Retailer.ID", "Region", "State", "City", "Product", "Sales.Method","State.Id"), # parameter untuk memilih kolom yang akan diubah tipe datanya
+            .funs = as.factor) %>% # parameter untuk fungsi tipe data yang dituju
+  mutate(Invoice.Date = dmy(Invoice.Date))
+```
+```{r}
+glimpse(sales)
+```
+
+
+#Check missing value
+```{r}
+anyNA(sales)
+```
+```{r}
+colSums(is.na(sales))
+```
+
+#Membuat kolom season
+tahapan: 
+1. ekstrak day,month, year
+2. buat kolom season dengan fungsi if -> winter (12,1,2), spring (3,4,5), summer(6,7,8), autumn (9,10,11)
+
+```{r}
+#ekstrak day,month, year
+sales$day <-  day(sales$Invoice.Date)
+sales$month <- month(sales$Invoice.Date)
+sales$year <- year(sales$Invoice.Date)
+head(sales)
+```
+
+```{r}
+convert_product <- function(x) {
+  if(x == "Men's Apparel") {x <- "MA"}
+  else if ( x == "Men's Street Footwear"){ x <- "MSF"}
+  else if ( x == "Men's Athletic Footwear"){ x <- "MAF"}
+  else if ( x == "Women's Apparel"){ x <- "WA"}
+  else if ( x == "Women's Athletic Footwear"){ x <- "WAF"}
+  else {x <- "WSF"}
+}
+```
+
+```{r}
+sales$Product.ID <- sapply(X = sales$Product, # kolom angka yang mau diubah
+                            FUN = convert_product)
+sales$Product.ID <- as.factor(sales$Product.ID)
+```
+
+
+```{r}
+convert_season <- function(x) {
+  if (x == 1 | x == 2 | x == 12) 
+    {x <- "Winter"}
+  else if (x == 3 | x == 4 | x == 5 )
+    {x <- "Spring"}
+  else if (x == 6 | x == 7 | x == 8 )
+    {x <- "Summer"}
+  else 
+    {x <- "Autumn"}
+}
+```
+
+Untuk mengimplementasikan fungsi `convert_season` kita bisa menggunakan `sapply()`.
+
+-   `X` = kolom apa yang ingin kita transformasi
+-   `FUN` = nama fungsi yang ingin diterapkan
+
+```{r}
+# Please run the code down below
+sales$season <- sapply(X = sales$month, # kolom angka yang mau diubah
+                            FUN = convert_season) 
+
+# ubah ke factor
+sales$season <- as.factor(sales$season)
+sales$day <- wday(sales$Invoice.Date)
+sales$day <- as.factor(sales$day)
+sales$month <- month(sales$Invoice.Date, label = T, abbr = T)
+sales$month <- as.factor(sales$month)
+sales$year <- as.factor(sales$year)
+head(sales)
+```
+```{r}
+aggregate(Total.Sales ~ season + year+ Retailer, data = sales, FUN = sum)
+  
+```
+
+
+```{r}
+str(sales)
+```
+
+#TAB ITEM 1, OVERVIEW
+##INFOBOX 1. Total Retailer
+```{r}
+length(unique(sales$Retailer))
+```
+##INFOBOX 2. Total City
+```{r}
+length(unique(sales$City))
+```
+##INFOBOX 3. Best Seller Product
+```{r}
+best_product <- 
+  sales %>%  
+  group_by(Product) %>% 
+  summarise(Units.Sold = sum(Units.Sold)) %>% 
+  arrange(-Units.Sold) %>% 
+  head(1) 
+best_product[1,1]
+```
+
+```{r}
+#TOP RETAILER
+top_retailer <- 
+sales %>% 
+  group_by(Retailer) %>% 
+  summarise(Total.Sales = sum(Total.Sales)) %>% 
+  arrange(-Total.Sales) %>% 
+  head(1)
+top_retailer
+```
+
+
+##INFOBOX 4. Average products sold per season
+
+```{r}
+aggregate(Units.Sold ~ season, data = sales, FUN = sum)
+```
+
+
+```{r}
+ave_product <- 
+  sales %>%  
+  group_by(season) %>% 
+  summarise(Units.Sold = sum(Units.Sold)) %>% 
+  arrange(-Units.Sold) 
+ave_product
+```
+
+```{r}
+mean(ave_product$Units.Sold)
+```
+
+##INFOBOX 5. Average amount sales per season
+```{r}
+ave_sales <- 
+  sales %>%  
+  group_by(season) %>% 
+  summarise(Total.Sales = sum(Total.Sales)) %>% 
+  arrange(-Total.Sales) 
+ave_sales
+```
+
+```{r}
+mean(ave_sales$Total.Sales)
+```
+
+##INFOBOX 6. Average operating margin per season
+```{r}
+ave_op <- 
+  sales %>%  
+  group_by(season) %>% 
+  summarise(Operating.Margin = mean(Operating.Margin)) %>% 
+  arrange(-Operating.Margin) 
+ave_op
+```
+
+```{r}
+mean(ave_op$Operating.Margin)
+```
+
+##Plot1 
+plot title: Total sales based on season
+plot type: bar plot
+
+```{r}
+#data untuk plot1
+sales_region <- 
+sales %>% 
+  filter(season %in% "Winter",
+         year %in% "2021") %>% 
+  group_by(Retailer, Region) %>% 
+  summarise(Total.Sales = sum(Total.Sales), .groups = "drop") %>% 
+  ungroup() %>% 
+  #arrange(-Total.Sales) %>% 
+  mutate(label = glue("Retailer: {Retailer}
+                      {Region} Sales: {comma(Total.Sales)}"))
+sales_region
+```
+
+```{r}
+#Membuat agregasi urutan peringkat
+urutan <- sales_region %>% 
+  aggregate(Total.Sales ~ Retailer, FUN = sum) %>% 
+  arrange(Total.Sales) %>%  
+  mutate(Retailer = as.character(Retailer)) %>% 
+  select(Retailer) %>% 
+  as.list()
+
+urutan
+```
+
+Pembuatan Visual Statis
+Membuat visual dengan menambahkan scale_x/y_discreate
+plot1 <- 
+ggplot(data = sales_region, 
+       mapping = aes(x= Total.Sales, 
+                     
+                     # tidak menggunakan fungsi reorder
+                     y= Retailer,
+                     
+                     # mewarnai stack by region
+                     fill = Region,
+                     
+                     # memberi info tooltip
+                     text=label)) +
+  geom_col(position = "stack") +
+  
+  # mengurutkan berdasarkan custom order
+  scale_y_discrete(limits = c("Walmart","Amazon","Kohl's","Sports Direct","Foot Locker","West Gear"))+
+  
+  scale_fill_brewer(palette = "Dark2")+
+  scale_x_continuous(labels = unit_format(scale = 1e-6, suffix = " mio"),
+                     breaks = seq(from = 0,
+                                  to = 250e6,
+                                  by = 50e6))+
+  
+
+  
+  labs(title = "Total Sales Based on Season",
+       x = "Total Sales",
+       y = "Retailer") +
+  theme(plot.title = element_text(face = "bold", size = 14, hjust = 6),
+        legend.position = "bottom")+
+  theme_classic()
+  
+Mengubah Visual Statis menjadi Interaktif
+ggplotly(plot1, tooltip = 'text')
+
+
+```{r}
+# Membuat visual dengan menambahkan scale_x/y_discreate
+# Pembuatan Visual Statis
+plot1 <- 
+ggplot(data = sales_region, 
+       mapping = aes(x=Total.Sales, 
+                     y=reorder(Retailer, Total.Sales),
+                     text=label)) +
+  geom_col(mapping = aes(fill=Region), position = "stack") +
+  scale_fill_brewer(palette = "Dark2")+
+
+# menambahkan custom urutan
+  scale_y_discrete(limits = urutan$Retailer)+
+  scale_x_continuous(labels = unit_format(scale = 1e-6, suffix = " M"),
+                     breaks = seq(from = 0,
+                                  to = 250e6,
+                                  by = 50e6))+
+  labs(title = "Total Sales Based on Season",
+       x = "Total Sales (in million)",
+       y = "Retailer",
+       fill="Region") +
+  theme_classic()+
+  theme(plot.title = element_text(face = "bold", size = 14, hjust = 6))
+
+# Mengubah Visual Statis menjadi Interaktif
+ggplotly(plot1, tooltip = 'text')
+```
+
+
+
+
+##Plot2
+```{r}
+#data untuk plot2
+sales_unitsold <- 
+sales%>% 
+  filter(season %in% "Winter",
+         year %in% "2021") %>% 
+  group_by(Retailer, Region) %>% 
+  summarise(Units.Sold = sum(Units.Sold), .groups = 'drop') %>% 
+  ungroup() %>%
+  mutate(label = glue("Retailer: {Retailer}
+                      {Region} Units Sold: {comma(Units.Sold)}"))
+sales_unitsold
+```
+
+```{r}
+#Membuat agregasi urutan peringkat
+urutan2 <- sales_unitsold %>% 
+  aggregate(Units.Sold ~ Retailer, FUN = sum) %>% 
+  arrange(Units.Sold) %>%  
+  mutate(Retailer = as.character(Retailer)) %>% 
+  select(Retailer) %>% 
+  as.list()
+
+urutan2
+```
+
+
+```{r}
+# Pembuatan Visual Statis
+plot2 <- 
+ggplot(data = sales_unitsold, 
+       mapping = aes(x=Units.Sold, y=reorder(Retailer, Units.Sold), text=label)) +
+  geom_col(mapping = aes(fill=Region), position = "stack") +
+  scale_fill_brewer(palette = "Dark2")+
+  # menambahkan custom urutan
+  scale_y_discrete(limits = urutan2$Retailer)+
+   scale_x_continuous(labels = comma)+
+  labs(title = "Total Unit Sold Based on Season",
+       x = "Total Unit Sold",
+       y = "Retailer",
+       fill="Region") +
+  theme_classic()+
+  theme(plot.title = element_text(face = "bold", size = 14, hjust = 6))
+# Mengubah Visual Statis menjadi Interaktif
+ggplotly(plot2, tooltip = 'text')
+```
+
+##Plot3
+```{r}
+#data untuk plot3
+sales_opmargin <- 
+sales %>% 
+  filter(season %in% "Winter",
+         year %in% "2021") %>% 
+  group_by(Retailer, Region) %>% 
+  summarise(Operating.Margin = mean(Operating.Margin)) %>% 
+  arrange(-Operating.Margin) %>% 
+  mutate(label = glue("Retailer: {Retailer}
+                      {Region} Op Margin: {comma(Operating.Margin)}%"))
+sales_opmargin
+```
+
+```{r}
+# Pembuatan Visual Statis
+plot3 <- 
+ggplot(data = sales_opmargin, 
+       mapping = aes(x=Operating.Margin, y=reorder(Retailer, Operating.Margin), text=label)) +
+  geom_col(mapping = aes(fill=Region), position = "fill") +
+  scale_fill_brewer(palette = "Dark2")+
+   scale_x_continuous(labels = comma)+
+  labs(title = "Operating Margin Based on Season",
+       x = "Operating Margin (%)",
+       y = "Retailer",
+       fill="Region") +
+  theme_classic()+
+  theme(plot.title = element_text(face = "bold", size = 14, hjust = 6))
+# Mengubah Visual Statis menjadi Interaktif
+ggplotly(plot3, tooltip = 'text')
+```
+
+##Plot4
+Total Product Sold Based on Season
+```{r}
+#data untuk plot4
+sales_prod <- 
+sales%>% 
+  filter(season %in% "Winter",
+         year %in% "2021") %>% 
+  group_by(Product.ID, Retailer) %>% 
+  summarise(Units.Sold = sum(Units.Sold), .groups = 'drop') %>% 
+  ungroup() %>% 
+  mutate(label = glue("Retailer: {Retailer}
+                      Units.Sold: {comma(Units.Sold)}"))
+sales_prod
+```
+
+```{r}
+urutan4 <- sales_prod %>% aggregate(Units.Sold ~ Product.ID, FUN = sum) %>% arrange(Units.Sold) %>%  mutate(Product.ID = as.character(Product.ID)) %>% select(Product.ID) %>% as.list()
+
+urutan4
+```
+
+
+```{r}
+# Pembuatan Visual Statis
+plot4 <- 
+ggplot(data = sales_prod, 
+       mapping = aes(x=Units.Sold, y=reorder(Product.ID, Units.Sold), text=label)) +
+  geom_col(mapping = aes(fill=Retailer), position = "stack") +
+  scale_fill_brewer(palette = "Dark2")+
+  scale_x_continuous(labels = comma)+ #unit_format(scale = 1e-3, suffix = " K"),
+                     #breaks = seq(from = 0, to = 250e3, by = 25e3))+
+  scale_y_discrete(limits = urutan4$Product)+
+  #guides(x = guide_axis(n.dodge = 2))+
+  labs(title = "Total Product Sold Based on Season",
+       x = "Unit Sold",
+       y = "Product.ID",
+       fill="Retailer") +
+  theme_classic()+
+  theme(plot.title = element_text(face = "bold", size = 14, hjust = 6),
+        axis.text.y = element_text(angle = 45, hjust = 1),
+        axis.text.x = element_text(angle = 30, hjust = 1))
+# Mengubah Visual Statis menjadi Interaktif
+ggplotly(plot4, tooltip = 'text')
+```
+
+#TAB ITEM 2. TREND ANALYSIS
+##Plot5
+```{r}
+sales_year <- 
+sales%>% 
+  group_by(month, year) %>% 
+  summarise(Total.Sales = sum(Total.Sales)) %>% 
+  arrange(year) %>% 
+  mutate(label = glue("Month: {month}
+                      Total.Sales: {comma(Total.Sales)}"))
+sales_year
+```
+
+```{r}
+# Pembuatan Visual Statis
+plot5 <- 
+ggplot(data = sales_year, 
+       mapping = aes(x = month,
+                     y = Total.Sales,
+                     text=label,
+                     # mewarnai line
+                     color = year), palette = "Dark2")+
+  # layer 1: line plot 
+  geom_line(mapping = aes(group = year),
+            #menebalkan garis line
+            size = 1 )+
+  # layer 2: menambahkan titik
+  geom_point(size = 2)+
+  # menambahkan separator bilangan
+  scale_y_continuous(labels = unit_format(scale = 1e-6, suffix = " mio"),
+                     breaks = seq(from = 0,
+                                  to = 150e6,
+                                  by = 25e6))+
+  labs(title = "Total Sales per Month",
+       x="Month",
+       y="Total Sales")+
+  theme_minimal()+
+  theme(plot.title = element_text(face = "bold", size = 14, hjust = 6))
+# Mengubah Visual Statis menjadi Interaktif
+ggplotly(plot5, tooltip = 'text')
+```
+
+##Plot6
+```{r}
+sales_method <- 
+sales%>% 
+  group_by(Sales.Method) %>% 
+  summarise(Total.Sales = sum(Total.Sales)) %>% 
+  arrange(-Total.Sales) %>% 
+  mutate(label = glue("Sales Method: {Sales.Method}
+                      Total Sales: {comma(Total.Sales)}"))
+sales_method
+```
+
+```{r}
+# Pembuatan Visual Statis
+plot6 <- 
+ggplot(data = sales_method, 
+       mapping = aes(x=reorder(Sales.Method, Total.Sales), y=Total.Sales, text=label)) +
+  geom_col(fill = "darkgreen") +
+  scale_y_continuous(labels = comma)+
+  labs(title = "Total Sales Based on Sales Method",
+       x = "Sales Method",
+       y = "Total Sales",
+       fill="Retailer") +
+  theme_classic()+
+  theme(plot.title = element_text(face = "bold", size = 14, hjust = 6))
+# Mengubah Visual Statis menjadi Interaktif
+ggplotly(plot6, tooltip = 'text')
+```
+
+##Plot7
+```{r}
+sales_region <- 
+sales%>% 
+  filter(Region %in% "West") %>%
+  group_by(Retailer, Sales.Method) %>% 
+  summarise(Total.Sales = sum(Total.Sales)) %>% 
+  arrange(-Total.Sales) %>% 
+  mutate(label = glue("Sales Method: {Sales.Method}
+                      Total Sales: {comma(Total.Sales)}"))
+sales_region
+```
+
+```{r}
+# Pembuatan Visual Statis
+plot7 <- 
+ggplot(data = sales_region, 
+       mapping = aes(x=reorder(Retailer, -Total.Sales), y=Total.Sales, text=label)) +
+  geom_col(mapping = aes(fill=Sales.Method), position = "stack") +
+  scale_fill_brewer(palette = "Dark2")+
+  scale_y_continuous(labels = unit_format(scale = 1e-6, suffix = " mio"),
+                     breaks = seq(from = 0,
+                                  to = 2500e6,
+                                  by = 25e6))+
+  labs(title = "Total Sales Based on Season",
+       x = "Retailer",
+       y = "Total Sales",
+       fill="Sales Method") +
+  theme_classic()+
+  theme(plot.title = element_text(face = "bold", size = 14, hjust = 6),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+# Mengubah Visual Statis menjadi Interaktif
+ggplotly(plot7, tooltip = 'text')
+```
+
+##Plot8
+```{r}
+sales_region1 <- 
+sales%>% 
+  filter(Region %in% "West") %>%
+  group_by(Retailer, Sales.Method) %>% 
+  summarise(Units.Sold = sum(Units.Sold)) %>% 
+  arrange(-Units.Sold) %>% 
+  mutate(label = glue("Sales Method: {Sales.Method}
+                      Units Sold: {comma(Units.Sold)}"))
+sales_region1
+```
+
+```{r}
+# Pembuatan Visual Statis
+plot8 <- 
+ggplot(data = sales_region1, 
+       mapping = aes(x=reorder(Retailer, -Units.Sold), y=Units.Sold, text=label)) +
+  geom_col(mapping = aes(fill=Sales.Method), position = "stack") +
+  scale_fill_brewer(palette = "Dark2")+
+  scale_y_continuous(labels = comma,
+                     breaks = seq(from = 0,
+                                  to = 500000,
+                                  by = 50000))+
+  labs(title = "Total Product Sold Based on Season",
+       x = "Retailer",
+       y = "Unit Sold",
+       fill="Sales Method") +
+  theme_classic()+
+  theme(plot.title = element_text(face = "bold", size = 14, hjust = 6),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+# Mengubah Visual Statis menjadi Interaktif
+ggplotly(plot8, tooltip = 'text')
+```
+
+#TAB ITEM 3.
+MAPS BY STATE of US
+```{r}
+# Geospatial data available at the json format
+#dari web https://github.com/PublicaMundi/MappingAPI/blob/master/data/geojson/us-states.json klik raw untuk mendapatkan link raw data
+US_json <- tempfile(fileext = ".json")
+
+download.file(
+  "https://raw.githubusercontent.com/PublicaMundi/MappingAPI/master/data/geojson/us-states.json",
+  US_json
+)
+library(sf)
+my_sf <- read_sf(US_json)
+my_sf
+```
+
+
+```{r}
+library(ggplot2)
+ggplot(my_sf) +
+  geom_sf(fill = "white", color = "black", linewidth = 0.3) +
+  theme_void()
+```
+
+```{r}
+sales_state <- 
+sales%>% 
+  #filter(Region %in% "West") %>%
+  group_by(State) %>% 
+  summarise(Total.Sales = sum(Total.Sales)) %>% 
+  arrange(-Total.Sales) %>% 
+  mutate(label = glue("State: {State}
+                      Total Sales: {comma(Total.Sales)}"))
+sales_state
+```
+
+
+Merge geospatial and numeric data
+```{r}
+# Make the merge
+my_sf_merged <- sales_state %>%
+  left_join(my_sf, by = c("State" = "name"))
+  # Note that if the number of restaurant is NA, it is in fact 0
+  #mutate(nb_equip = ifelse(is.na(nb_equip), 0.01, nb_equip))
+my_sf_merged
+```
+
+```{r}
+colSums(is.na(my_sf_merged))
+```
+```{r}
+# Create a color palette with handmade bins.
+library(RColorBrewer)
+mybins <- c(0, 1000000, 10000000, 30000000, 50000000, 70000000)
+mypalette <- colorBin(palette = "viridis", domain = my_sf_merged$Total.Sales, na.color = "transparent", bins = mybins)
+#mypalette <- colorFactor(palette = "Greens",domain = my_sf_merged$Total.Sales,na.color = "transparent", bins = mybins)
+#mypalette <- colorBin("Blues", my_sf_merged$Total.Sales, 6, pretty = FALSE)
+#mypalette <- colorBin(palette = "YlOrBr", domain = my_sf_merged$Total.Sales,na.color = "transparent", bins = mybins)
+#mypalette <- colorNumeric(palette = "viridis", domain = my_sf_merged$Total.Sales,na.color = "transparent")
+```
+
+```{r}
+# Prepare the text for tooltips:
+mytext <- paste(
+  "State: ", my_sf_merged$State, "<br/>",
+  "Total Sales:", {comma(my_sf_merged$Total.Sales)} ,"<br/>",
+  sep = ""
+) %>%
+  lapply(htmltools::HTML)
+
+# Final Map
+#Data perlu dirubah ke bentuk sf lagi supaya R bisa membaca data geometry nya
+my_sf_merged <- sf::st_as_sf(my_sf_merged)
+
+m <- leaflet(my_sf_merged) %>%
+  addTiles() %>%
+  setView(lat = 50, lng = -100, zoom = 2.5) %>%
+  addPolygons(
+    fillColor = ~ mypalette(my_sf_merged$Total.Sales),
+    stroke = TRUE,
+    fillOpacity = 0.9,
+    color = "white",
+    weight = 0.3,
+    label = mytext,
+    labelOptions = labelOptions(
+      style = list("font-weight" = "normal", padding = "3px 8px"),
+      textsize = "13px",
+      direction = "auto"
+    )
+  ) %>%
+  addLegend(
+    pal = mypalette, values = ~my_sf_merged$Total.Sales, opacity = 0.9,
+    title = "Total Sales", position = "bottomleft"
+  )
+m
+```
+https://stackoverflow.com/questions/51733424/colorbin-leaflet-in-r-not-working-as-expected
+
+
+
+
+
+
+
+
+
+
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+
+```{r}
+my_sf_state <- 
+my_sf_merged%>% 
+  #filter(Region %in% "West") %>%
+  group_by(State, id, density, geometry) %>% 
+  summarise(Total.Sales = sum(Total.Sales)) %>% 
+  arrange(-Total.Sales) %>% 
+  mutate(label = glue("State: {State}
+                      Total Sales: {comma(Total.Sales)}"))
+my_sf_state
+```
+
+
+```{r}
+# Create a color palette with handmade bins.
+library(RColorBrewer)
+mybins <- c(0, 1000000, 10000000, 20000000, 30000000, 40000000, 65000000)
+mypalette <- colorBin(
+  palette = "Greens", domain = my_sf_state$Total.Sales,
+  na.color = "transparent", bins = mybins)
+```
+
+```{r}
+# Prepare the text for tooltips:
+mytext <- paste(
+  "State: ", my_sf_state$State, "<br/>",
+  "Total Sales:", {comma(my_sf_state$Total.Sales)} ,"<br/>",
+  sep = ""
+) %>%
+  lapply(htmltools::HTML)
+```
+
+```{r}
+
+# Final Map
+m <- leaflet(my_sf) %>%
+  addTiles() %>%
+  setView(lat = 50, lng = -100, zoom = 2.5) %>%
+  addPolygons(
+    fillColor = ~ mypalette(my_sf_state$Total.Sales),
+    stroke = TRUE,
+    fillOpacity = 0.9,
+    color = "white",
+    weight = 0.3,
+    label = mytext,
+    labelOptions = labelOptions(
+      style = list("font-weight" = "normal", padding = "3px 8px"),
+      textsize = "13px",
+      direction = "auto"
+    )
+  ) %>%
+  addLegend(
+    pal = mypalette, values = ~my_sf_state$Total.Sales, opacity = 0.9,
+    title = "Total Sales", position = "bottomleft"
+  )
+
+m
+```
+
+
+```{r}
+my_sf_merged1 <- sales_state %>%
+  left_join(my_sf, by = c("State" = "name"))
+  # Note that if the number of restaurant is NA, it is in fact 0
+  #mutate(nb_equip = ifelse(is.na(nb_equip), 0.01, nb_equip))
+my_sf_merged1
+```
+
+```{r}
+library(RColorBrewer)
+library(leaflet)
+```
+
+
+```{r}
+# Create a color palette with handmade bins.
+#library(RColorBrewer)
+mybins <- c(0, 1000000, 10000000, 20000000, 30000000, 40000000, 65000000)
+mypalette <- colorBin(
+  palette = "Greens", domain = my_sf_merged1$Total.Sales,
+  na.color = "transparent", bins = mybins)
+# Prepare the text for tooltips:
+mytext <- paste(
+  "State: ", my_sf_merged1$State, "<br/>",
+  "Total Sales:", {comma(my_sf_merged1$Total.Sales)} ,"<br/>",
+  sep = ""
+) %>%
+  lapply(htmltools::HTML)
+# Final Map
+
+#Data perlu dirubah ke bentuk sf lagi supaya R bisa membaca data geometry nya
+my_sf_merged1 <- sf::st_as_sf(my_sf_merged1)
+
+trial <- leaflet(my_sf_merged1) %>%
+  addTiles() %>%
+  setView(lat = 50, lng = -100, zoom = 2.5) %>%
+  addPolygons(
+    fillColor = ~ mypalette(my_sf_merged1$Total.Sales),
+    stroke = TRUE,
+    fillOpacity = 0.9,
+    color = "white",
+    weight = 0.3,
+    label = mytext,
+    labelOptions = labelOptions(
+      style = list("font-weight" = "normal", padding = "3px 8px"),
+      textsize = "13px",
+      direction = "auto"
+    )
+  ) %>%
+  addLegend(
+    pal = mypalette, values = ~my_sf_merged1$Total.Sales, opacity = 0.9,
+    title = "Total Sales", position = "bottomleft"
+  )
+trial
+```
+
+
+
+new data json
+```{r}
+# Geospatial data available at the json format
+#dari web https://github.com/PublicaMundi/MappingAPI/blob/master/data/geojson/us-states.json klik raw untuk mendapatkan link raw data
+US_json <- tempfile(fileext = ".json")
+
+download.file(
+  "https://storage.googleapis.com/kagglesdsdata/datasets/831691/1428241/us-states.json?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=gcp-kaggle-com%40kaggle-161607.iam.gserviceaccount.com%2F20240703%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20240703T122646Z&X-Goog-Expires=259200&X-Goog-SignedHeaders=host&X-Goog-Signature=6895e9ead75a20973bde81bfcb45d62b212bbb25ebd80f0af00438752bbe1f55149b1f1d6562bd0b6ffeca29f47270b0e3ee49c9b111cf014756782d32eee08ea51ffd97c920628209f64bbcd0febbd34c4bfc9498175db574c65c16ec2d26fec719c827ee48f3fb612897fcdf1947616d1d7bf0044f079bdb1a70be53aa6f809880daee95fe03377f5058213d6399ffc62d09abbd229e92921ff236152450ab96bfd91f23ae4ff4a771d913c5b34837a81789232abd082d1f7a0462de7a14a18ded79e1d267bebc933fd4ad0838f2e569706a1aeb086e9f978faefdaba86b9046fdc039b9aa9c1073bb5d76ae268f90f877e86b5be575c0e22c4169e76aef27",
+  US_json
+)
+trial1_sf <- read_sf(US_json)
+trial1_sf
+```
+
+```{r}
+my_sf_merged2 <- sales_state %>%
+  left_join(trial1_sf, by = c("State" = "name"))
+  # Note that if the number of restaurant is NA, it is in fact 0
+  #mutate(nb_equip = ifelse(is.na(nb_equip), 0.01, nb_equip))
+my_sf_merged2
+```
+
+```{r}
+# Create a color palette with handmade bins.
+#library(RColorBrewer)
+mybins <- c(0, 1000000, 10000000, 20000000, 30000000, 40000000, 65000000)
+mypalette <- colorBin(
+  palette = "Greens", domain = my_sf_merged1$Total.Sales,
+  na.color = "transparent", bins = mybins)
+# Prepare the text for tooltips:
+mytext <- paste(
+  "State: ", my_sf_merged1$State, "<br/>",
+  "Total Sales:", {comma(my_sf_merged1$Total.Sales)} ,"<br/>",
+  sep = ""
+) %>%
+  lapply(htmltools::HTML)
+```
+
+```{r}
+#Data perlu dirubah ke bentuk sf lagi supaya R bisa membaca data geometry nya
+my_sf_merged2 <- sf::st_as_sf(my_sf_merged2)
+```
+
+
+
+```{r}
+# Final Map
+trial1 <- leaflet(my_sf_merged2) %>%
+  addTiles() %>%
+  setView(lat = 50, lng = -100, zoom = 2.5) %>%
+  addPolygons(
+    fillColor = ~ mypalette(my_sf_merged2$Total.Sales),
+    stroke = TRUE,
+    fillOpacity = 0.9,
+    color = "white",
+    weight = 0.3,
+    label = mytext,
+    labelOptions = labelOptions(
+      style = list("font-weight" = "normal", padding = "3px 8px"),
+      textsize = "13px",
+      direction = "auto"
+    )
+  ) %>%
+  addLegend(
+    pal = mypalette, values = ~my_sf_merged2$Total.Sales, opacity = 0.9,
+    title = "Total Sales", position = "bottomleft"
+  )
+trial1
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
